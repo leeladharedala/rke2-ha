@@ -1,0 +1,8 @@
+---
+- name: Deploy Rancher using Helm
+  hosts: rke2_servers
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  roles:
+    - deploy_rancher

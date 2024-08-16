@@ -1,0 +1,8 @@
+---
+- name: Join Additional RKE2 Server Nodes
+  hosts: rke2_servers
+  become: yes
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  roles:
+    - join_rke2_cluster

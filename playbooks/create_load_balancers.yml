@@ -1,0 +1,95 @@
+---
+- name: Create Load Balancers and Target Groups
+  hosts: localhost
+  gather_facts: no
+  collections:
+    - amazon.aws
+  vars:
+    ansible_python_interpreter: /opt/homebrew/opt/python@3.12/bin/python3.12
+  tasks:
+
+    - name: Create Target Group for RKE2
+      community.aws.elb_target_group:
+       name: rke2-tg
+       target_type: instance
+       vpc_id: "{{ primary_ec2.instances[0].vpc_id }}"
+       protocol: TCP
+       port: 9345
+       health_check_protocol: TCP
+       health_check_port: 9345
+       state: present
+      register: rke2_tg
+
+    - name: Create Target Group for Rancher
+      community.aws.elb_target_group:
+       name: rancher-tg
+       target_type: instance
+       vpc_id: "{{ primary_ec2.instances[0].vpc_id }}"
+       protocol: TCP
+       port: 443
+       health_check_protocol: TCP
+       health_check_port: 80
+       state: present
+      register: rancher_tg
+
+    - name: Register instances to RKE2 Target Group
+      community.aws.elb_target:
+       target_group_name: "rke2-tg"
+       target_id: "{{ primary_ec2.instances | map(attribute='public_ip_address') | list }}"
+       state: present
+    
+    - name: Register instances to RKE2 Target Group
+      community.aws.elb_target:
+       target_group_name: "rke2-tg"
+       target_id: "{{ secondary_ec2.instances | map(attribute='public_ip_address') | list }}"
+       state: present
+
+    - name: Register instances to Rancher Target Group
+      community.aws.elb_target:
+       target_group_name: "rancher-tg"
+       target_id: "{{ primary_ec2.instances | map(attribute='public_ip_address') | list }}"
+       state: present
+    
+    - name: Register instances to Rancher Target Group
+      community.aws.elb_target:
+       target_group_name: "rancher-tg"
+       target_id: "{{ secondary_ec2.instances | map(attribute='public_ip_address') | list }}"
+       state: present
+
+    - name: Create RKE2 NLB
+      community.aws.elb_network_lb:
+       name: rke2-nlb
+       state: present
+       security_groups: "test-security-group"
+       scheme: internet-facing
+       vpc_id: "{{ ec2.instances[0].vpc_id }}"
+       listeners:
+         - protocol: TCP
+           port: 9345
+       DefaultActions:
+          - Type: forward # Required. Only 'forward' is accepted at this time
+            TargetGroupName: rke2-tg # Required
+       tags:
+         Name: rke2_nlb
+
+    - name: Create Rancher NLB
+      community.aws.elb_network_lb:
+       name: rancher-nlb
+       state: present
+       security_groups: "test-security-group"
+       scheme: internet-facing
+       vpc_id: "{{ ec2.instances[0].vpc_id }}"
+       listeners:
+         - protocol: TCP
+           port: 443
+       DefaultActions:
+          - Type: forward # Required. Only 'forward' is accepted at this time
+            TargetGroupName: rancher-tg # Required
+       tags:
+         Name: rancher_nlb
+
+    - name: Output NLB DNS Names
+      debug:
+       msg:
+        - "RKE2 NLB DNS Name: {{ rke2_nlb.load_balancer.dns_name }}"
+        - "Rancher NLB DNS Name: {{ rancher_nlb.load_balancer.dns_name }}"

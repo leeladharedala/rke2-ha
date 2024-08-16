@@ -1,0 +1,57 @@
+
+    - name: create key pair using key_material obtained using 'file' lookup plugin
+      amazon.aws.ec2_key:
+        name: my_keypair
+        key_material: "{{ lookup('file', '/Users/leeladharedala/rke2-ha/keys/key3.pub') }}"
+        region: "us-east-1"
+
+    - name: Create security group
+      amazon.aws.ec2_security_group:
+        name: "test-security-group"
+        description: "Sec group for app"
+        region: "us-east-1"
+        rules:
+          - proto: all
+            from_port: -1
+            to_port: -1
+            cidr_ip: 0.0.0.0/0
+        rules_egress:
+          - proto: all
+            from_port: -1
+            to_port: -1
+            cidr_ip: 0.0.0.0/0
+
+    - name: Launch EC2 instances
+      amazon.aws.ec2_instance:
+        key_name: "my_keypair"  # Use the generated key pair
+        instance_type: t2.medium
+        image_id: ami-0ae8f15ae66fe8cda            # Replace with your preferred AMI ID
+        region: us-east-1  
+        security_group: "test-security-group"                        # AWS region
+        wait: yes
+        count: 3                                   # Number of instances
+        tags:
+          Name: rke2-node7
+        network:
+          assign_public_ip: true
+      register: ec2
+      
+    - name: Wait for 2 minutes to let instances initialize
+      pause:
+        minutes: 2 
+
+    - name: Get VPC ID from the instance
+      set_fact:
+        vpc_id: "{{ ec2.instances[0].vpc_id }}"
+
+    - name: Add the newly created EC2 instances to the inventory
+      add_host:
+        groups: rke2_servers
+        hostname: "{{ item.public_ip_address }}"
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: "/Users/leeladharedala/rke2-ha/keys/key3.pem"
+        vpc_id: "{{ item.vpc_id }}"  
+      loop: "{{ ec2.instances }}"  
+    
+
+    

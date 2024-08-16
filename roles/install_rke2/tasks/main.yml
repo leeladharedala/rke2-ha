@@ -1,0 +1,89 @@
+- name: Allow passwordless sudo for ec2-user
+  lineinfile:
+    dest: /etc/sudoers
+    regexp: '^ec2-user ALL=.*'
+    line: 'ec2-user ALL=(ALL) NOPASSWD:ALL'
+    state: present
+    validate: 'visudo -cf %s'
+
+- name: Install latest versions of boto3 and botocore
+  pip:
+    name:
+      - boto3
+      - botocore
+    state: latest
+
+- name: Create RKE2 configuration directory
+  file:
+    path: /etc/rancher/rke2/
+    state: directory
+    mode: '0755'
+
+- name: Configure RKE2 server
+  copy:
+    content: |
+      write-kubeconfig-mode: "0644"
+      tls-san:
+        - "{{ rke2_nlb.dns_name }}"
+    dest: /etc/rancher/rke2/config.yaml
+
+- name: Copy RKE2 installation script to the server
+  copy:
+    src: files/rke2_install.sh
+    dest: /tmp/rke2_install.sh
+    mode: '0755'
+
+- name: Run RKE2 installation script
+  command: /tmp/rke2_install.sh
+
+- name: Display RKE2 server status
+  shell: "systemctl status rke2-server.service | grep 'Active:'"
+  register: rke2_status
+
+- name: Show the status of the RKE2 server
+  debug:
+    msg: "RKE2 Server Status on {{ inventory_hostname }}: {{ rke2_status.stdout }}"
+
+- name: Download kubectl binary
+  shell: |
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+- name: Export kubeconfig to /root/.kube/config
+  shell: |
+    mkdir -p $HOME/.kube
+    cp /etc/rancher/rke2/rke2.yaml $HOME/.kube/config
+    sed -i "s/127.0.0.1/{{ rke2_nlb.load_balancer_dns_name }}/g" $HOME/.kube/config
+  args:
+    executable: /bin/bash
+
+- name: Retrieve node-token
+  slurp:
+    src: /var/lib/rancher/rke2/server/node-token
+  register: node_token
+
+- name: Set node-token fact
+  set_fact:
+    rke2_node_token: "{{ node_token.content | b64decode }}"
+
+- name: Join additional server nodes to the cluster
+  shell: |
+    curl -sfL https://get.rke2.io | sh -
+    mkdir -p /etc/rancher/rke2/
+    echo "server: https://{{ rke2_nlb.dns_name }}:9345" > /etc/rancher/rke2/config.yaml
+    echo "token: {{ rke2_node_token }}" >> /etc/rancher/rke2/config.yaml
+    systemctl enable rke2-server.service
+    systemctl start rke2-server.service
+  args:
+    executable: /bin/bash
+
+- name: Display RKE2 server status
+  shell: "systemctl status rke2-server.service | grep 'Active:'"
+  register: rke2_status1
+
+- name: Show the status of the RKE2 server
+  debug:
+    msg: "RKE2 Server Status on {{ inventory_hostname }}: {{ rke2_status1.stdout }}"
+    
+  loop: "{{ groups['rke2_servers'] | difference([inventory_hostname]) }}"
