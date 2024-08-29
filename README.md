@@ -1,4 +1,4 @@
-# rke2-ha
+# Storyboard
  
 Read and Create Service for workloads
 Create nginx service of type ClusterIP and get the deployment page
