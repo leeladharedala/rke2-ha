@@ -1,4 +1,6 @@
 # Storyboard
+
+Deployed RKE2-High availability cluster using Ansible(Infrastructure as a code) and installed rancher in the master node
  
 Read and Create Service for workloads
 Create nginx service of type ClusterIP and get the deployment page
